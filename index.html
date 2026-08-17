@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SOP Generator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root { --accent: #2563EB; --accent-hover: #1D4ED8; }
+  html, body { margin: 0; padding: 0; background: #FFFFFF; }
+  * { box-sizing: border-box; }
+  body { font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #0A0A0A; -webkit-font-smoothing: antialiased; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { color: var(--accent-hover); text-decoration: underline; }
+  ::selection { background: #DBEAFE; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  textarea, input, button { font-family: inherit; font: inherit; }
+  [contenteditable]:hover { background: #F6F8FF; }
+  [contenteditable]:focus { background: #F6F8FF; outline: none; box-shadow: -8px 0 0 #F6F8FF, 8px 0 0 #F6F8FF; }
+  @keyframes sop-spin { to { transform: rotate(360deg); } }
+  @keyframes sop-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+  .mono { font-family: 'IBM Plex Mono', monospace; }
+
+  .cat-btn { padding: 8px 14px; font-size: 13px; font-weight: 500; border-radius: 999px; cursor: pointer; transition: border-color .12s; background: #FFFFFF; color: #404040; border: 1px solid #E5E5E5; }
+  .cat-btn:hover { border-color: #0A0A0A; }
+  .cat-btn.active { background: #0A0A0A; color: #FFFFFF; border-color: #0A0A0A; }
+
+  textarea#ta, .ctx-input { width: 100%; color: #0A0A0A; background: #FFFFFF; border: 1px solid #E5E5E5; border-radius: 6px; }
+  textarea#ta { resize: vertical; padding: 18px 20px; font-size: 15px; line-height: 1.65; }
+  textarea#ta:focus, .ctx-input:focus { border-color: var(--accent); outline: none; }
+  .ctx-input { padding: 11px 13px; font-size: 14px; }
+
+  .gen-btn { padding: 12px 22px; font-size: 14px; font-weight: 500; color: #FFFFFF; background: var(--accent); border: 1px solid transparent; border-radius: 6px; cursor: pointer; letter-spacing: -0.005em; }
+  .gen-btn:hover:not([disabled]) { background: var(--accent-hover); }
+  .gen-btn[disabled] { background: #93A9EF; cursor: default; }
+
+  .hist-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 16px; padding: 13px 0; border-top: 1px solid #ECECEC; }
+  .hist-open { text-align: left; border: 0; background: none; padding: 0; cursor: pointer; font-size: 14px; font-weight: 500; color: #0A0A0A; }
+  .hist-open:hover { color: var(--accent); }
+  .hist-remove { border: 0; background: none; padding: 0 2px; cursor: pointer; font-size: 13px; color: #A3A3A3; }
+  .hist-remove:hover { color: #B91C1C; }
+
+  .toolbar-btn { padding: 8px 14px; font-size: 13px; font-weight: 500; color: #0A0A0A; background: #FFFFFF; border: 1px solid #E5E5E5; border-radius: 6px; cursor: pointer; }
+  .toolbar-btn:hover { border-color: #0A0A0A; }
+  .toolbar-btn.primary { color: #FFFFFF; background: var(--accent); border-color: var(--accent); }
+  .toolbar-btn.primary:hover { background: var(--accent-hover); }
+  .back-btn { border: 0; background: none; padding: 0; cursor: pointer; font-size: 12px; color: #525252; }
+  .back-btn:hover { color: var(--accent); }
+
+  .tag-role { font-size: 11px; padding: 5px 9px; border: 1px solid #DBEAFE; background: #F5F8FF; color: #1D4ED8; border-radius: 4px; }
+  .tag-tool { font-size: 11px; padding: 5px 9px; border: 1px solid #E5E5E5; background: #FAFAFA; color: #525252; border-radius: 4px; }
+
+  @media print {
+    .no-print { display: none !important; }
+    .sop-doc { padding: 0 !important; max-width: none !important; }
+    .sop-step { break-inside: avoid; }
+    [contenteditable]:hover { background: transparent; }
+  }
+
+  @media (max-width: 640px) {
+    .ctx-grid { grid-template-columns: 1fr !important; }
+    .meta-grid { grid-template-columns: repeat(2, 1fr) !important; }
+    .two-col { grid-template-columns: 1fr !important; }
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+(function () {
+  'use strict';
+
+  var CATS = ['Sales', 'Operations', 'HR', 'Finance', 'Marketing', 'Custom'];
+
+  var EXAMPLE = "How do we onboard a new employee? Once the offer is signed, HR files the paperwork and sets up payroll, IT provisions their laptop and accounts, we make sure they have all the apps installed before day one, the manager runs a first-week plan, and we check in at day 30.";
+
+  var KEY = 'sop-generator-history-v1';
+
+  var FALLBACK = {
+    title: 'New Employee Onboarding',
+    category: 'HR',
+    owner: 'People Operations',
+    frequency: 'Per new hire',
+    overview: 'This procedure covers everything between a signed offer and a fully onboarded employee at the end of their first month. Follow it in order; the app and access checklist must be complete before day one.',
+    roles: ['People Operations', 'IT', 'Hiring Manager', 'Finance'],
+    tools: ['HRIS', 'Device management', 'Identity provider', 'Payroll'],
+    steps: [
+      { title: 'Confirm the signed offer', detail: 'Check that the countersigned offer is filed and that title, start date, compensation and location match what was approved. Flag any discrepancy before anything else is set up.', owner_role: 'People Operations', checklist_items: ['Countersigned offer filed', 'Start date confirmed in writing', 'Background check cleared'] },
+      { title: 'Open the employee record and payroll', detail: 'Create the record in the HRIS, enrol the hire in payroll and benefits, and issue the policy pack for signature. Payroll must be live before the first cycle closes.', owner_role: 'People Operations', checklist_items: ['HRIS record created', 'Payroll and benefits enrolled', 'Policy pack signed and filed'] },
+      { title: 'Provision hardware and identity', detail: "Order or image the laptop, enrol it in device management, and create the company account with the access groups for the role. Ship or stage the device so it is in the new hire's hands before day one.", owner_role: 'IT', checklist_items: ['Laptop imaged and enrolled', 'Company account created', 'Role access groups assigned', 'Device delivered or staged for day one'] },
+      { title: 'Install the standard app set', detail: 'Push the standard applications to the device and confirm the new hire can sign in to each one. Nothing on this list is optional — an unsigned-in app on day one becomes a week of lost time.', owner_role: 'IT', checklist_items: ['Email and calendar client installed and signed in', 'Slack installed, signed in, added to team channels', 'Password manager installed and vault shared', 'Video conferencing app installed and tested', 'Document suite (docs, sheets, slides) accessible', 'Project tracker installed with the right workspace', 'VPN or access client installed and tested', 'Two-factor authentication enrolled on all of the above'] },
+      { title: 'Run the first-week plan', detail: 'The hiring manager schedules a day-one welcome, an org and product orientation, and introductions to the three people the role depends on most. Share the written plan before the start date.', owner_role: 'Hiring Manager', checklist_items: ['Day-one welcome scheduled', 'First-week plan shared in advance', 'Key introductions booked', 'Buddy assigned'] },
+      { title: 'Check in at day 30', detail: 'Hold a structured review covering role clarity, access gaps and anything that went wrong in setup. Log fixes so the next hire does not hit the same problem.', owner_role: 'Hiring Manager', checklist_items: ['Day-30 review held', 'Outstanding access issues resolved', 'Onboarding gaps logged'] }
+    ]
+  };
+
+  var els = {};
+  var category = 'HR';
+  var busy = false;
+  var copied = false;
+  var doc = null;
+  var history = loadHistory();
+
+  function loadHistory() {
+    try {
+      var raw = localStorage.getItem(KEY);
+      return raw ? (JSON.parse(raw) || []) : [];
+    } catch (e) { return []; }
+  }
+  function saveHistory() {
+    try { localStorage.setItem(KEY, JSON.stringify(history.slice(0, 10))); } catch (e) {}
+  }
+
+  function escapeHtml(str) {
+    return String(str == null ? '' : str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function normalizeDoc(raw, categoryFallback, freqFallback) {
+    var d = raw && typeof raw === 'object' ? raw : {};
+    return {
+      title: d.title || 'Untitled Procedure',
+      category: d.category || categoryFallback,
+      owner: d.owner || (Array.isArray(d.roles) && d.roles[0]) || 'Process owner',
+      frequency: d.frequency || freqFallback || 'As needed',
+      updated: d.updated || new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }),
+      version: d.version || '1.0',
+      overview: d.overview || '',
+      roles: (Array.isArray(d.roles) ? d.roles : []).map(String),
+      tools: (Array.isArray(d.tools) ? d.tools : []).map(String),
+      steps: (Array.isArray(d.steps) ? d.steps : []).map(function (s, i) {
+        return {
+          title: (s && s.title) || ('Step ' + (i + 1)),
+          detail: (s && s.detail) || '',
+          owner_role: (s && (s.owner_role || s.owner)) || '',
+          checklist_items: Array.isArray(s && s.checklist_items) ? s.checklist_items.map(String) : []
+        };
+      })
+    };
+  }
+
+  function setByPath(obj, path, value) {
+    var parts = path.split('.');
+    var o = obj;
+    for (var i = 0; i < parts.length - 1; i++) o = o[parts[i]];
+    o[parts[parts.length - 1]] = value;
+  }
+
+  // ---------- input screen ----------
+
+  function inputScreenHTML() {
+    var catsHtml = CATS.map(function (c) {
+      return '<button type="button" class="cat-btn' + (c === category ? ' active' : '') + '" data-cat="' + escapeHtml(c) + '">' + escapeHtml(c) + '</button>';
+    }).join('');
+
+    return '' +
+    '<div style="max-width:780px; margin:0 auto; padding:96px 32px 120px; display:flex; flex-direction:column; gap:56px;">' +
+      '<div style="display:flex; flex-direction:column; gap:18px;">' +
+        '<div class="mono" style="font-size:11px; letter-spacing:0.12em; color:#737373; text-transform:uppercase;">SOP Generator &nbsp;/&nbsp; Internal Documentation Tool</div>' +
+        '<h1 style="margin:0; font-size:40px; line-height:1.1; font-weight:600; letter-spacing:-0.025em;">Document a process.</h1>' +
+        '<p style="margin:0; font-size:16px; line-height:1.6; color:#525252; max-width:60ch;">Describe how something gets done in plain English. You\'ll get back a numbered standard operating procedure with owners, tools and a checklist — editable and ready to print.</p>' +
+      '</div>' +
+
+      '<div style="display:flex; flex-direction:column; gap:14px;">' +
+        '<div class="mono" style="font-size:11px; letter-spacing:0.1em; color:#0A0A0A; text-transform:uppercase;">01 &nbsp;— &nbsp;Category</div>' +
+        '<div id="catRow" style="display:flex; flex-wrap:wrap; gap:8px;">' + catsHtml + '</div>' +
+      '</div>' +
+
+      '<div style="display:flex; flex-direction:column; gap:14px;">' +
+        '<div style="display:flex; align-items:baseline; justify-content:space-between; gap:16px;">' +
+          '<div class="mono" style="font-size:11px; letter-spacing:0.1em; color:#0A0A0A; text-transform:uppercase;">02 &nbsp;— &nbsp;Describe the process</div>' +
+          '<button type="button" id="exampleBtn" style="border:0; background:none; padding:0; cursor:pointer; font-size:12px; color:#2563EB;">Use an example</button>' +
+        '</div>' +
+        '<textarea id="ta" rows="7" placeholder="How do we onboard a new employee? Walk through it the way you\'d explain it to a new manager: who does what, in what order, which apps and accounts they need before day one, and where things usually go wrong."></textarea>' +
+      '</div>' +
+
+      '<div style="display:flex; flex-direction:column; gap:14px;">' +
+        '<div class="mono" style="font-size:11px; letter-spacing:0.1em; color:#0A0A0A; text-transform:uppercase;">03 &nbsp;— &nbsp;Context <span style="color:#A3A3A3; letter-spacing:0.06em;">(optional)</span></div>' +
+        '<div class="ctx-grid" style="display:grid; grid-template-columns:repeat(3,1fr); gap:12px;">' +
+          '<label style="display:flex; flex-direction:column; gap:7px;"><span style="font-size:12px; color:#525252;">Roles involved</span><input id="rolesInput" type="text" class="ctx-input" placeholder="Account manager, Ops"></label>' +
+          '<label style="display:flex; flex-direction:column; gap:7px;"><span style="font-size:12px; color:#525252;">Tools used</span><input id="toolsInput" type="text" class="ctx-input" placeholder="HubSpot, Slack, Notion"></label>' +
+          '<label style="display:flex; flex-direction:column; gap:7px;"><span style="font-size:12px; color:#525252;">Frequency</span><input id="freqInput" type="text" class="ctx-input" placeholder="Per new client"></label>' +
+        '</div>' +
+      '</div>' +
+
+      '<div style="display:flex; align-items:center; gap:18px; border-top:1px solid #ECECEC; padding-top:28px;">' +
+        '<button type="button" id="generateBtn" class="gen-btn">Generate SOP</button>' +
+        '<div id="busyRow" class="mono" style="display:none; align-items:center; gap:10px; font-size:12px; color:#737373;">' +
+          '<span style="width:12px; height:12px; border:1.5px solid #E5E5E5; border-top-color:#2563EB; border-radius:50%; display:inline-block; animation: sop-spin .7s linear infinite;"></span>' +
+          '<span>Drafting procedure&hellip;</span>' +
+        '</div>' +
+        '<div id="errorRow" style="display:none; font-size:13px; color:#B91C1C;"></div>' +
+      '</div>' +
+
+      '<div id="historySection" style="display:none; flex-direction:column; gap:14px;">' +
+        '<div class="mono" style="font-size:11px; letter-spacing:0.1em; color:#737373; text-transform:uppercase;">Recent</div>' +
+        '<div id="historyList" style="display:flex; flex-direction:column;"></div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function attachInputHandlers() {
+    els.ta = document.getElementById('ta');
+    els.roles = document.getElementById('rolesInput');
+    els.tools = document.getElementById('toolsInput');
+    els.freq = document.getElementById('freqInput');
+
+    document.getElementById('catRow').addEventListener('click', function (e) {
+      var btn = e.target.closest('.cat-btn');
+      if (!btn) return;
+      category = btn.getAttribute('data-cat');
+      document.querySelectorAll('.cat-btn').forEach(function (b) { b.classList.toggle('active', b === btn); });
+    });
+
+    document.getElementById('exampleBtn').addEventListener('click', function () {
+      els.ta.value = EXAMPLE;
+      els.roles.value = 'People Ops, IT, Hiring manager';
+      els.tools.value = 'HRIS, Device management, Slack, Payroll';
+      els.freq.value = 'Per new hire';
+      category = 'HR';
+      document.querySelectorAll('.cat-btn').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-cat') === 'HR'); });
+      clearError();
+      els.ta.focus();
+    });
+
+    els.ta.addEventListener('input', clearError);
+    document.getElementById('generateBtn').addEventListener('click', generate);
+
+    renderHistoryList();
+  }
+
+  function renderHistoryList() {
+    var section = document.getElementById('historySection');
+    var list = document.getElementById('historyList');
+    if (!section || !list) return;
+    if (!history.length) { section.style.display = 'none'; list.innerHTML = ''; return; }
+    section.style.display = 'flex';
+    list.innerHTML = history.map(function (h, i) {
+      var stepCount = h.doc.steps ? h.doc.steps.length : 0;
+      return '<div class="hist-row">' +
+        '<button type="button" class="hist-open" data-idx="' + i + '">' + escapeHtml(h.doc.title) + '</button>' +
+        '<span class="mono" style="font-size:11px; color:#A3A3A3;">' + stepCount + ' steps &middot; ' + escapeHtml(h.doc.category) + '</span>' +
+        '<button type="button" class="hist-remove" data-idx="' + i + '" title="Delete">&#10005;</button>' +
+      '</div>';
+    }).join('');
+    list.querySelectorAll('.hist-open').forEach(function (btn) {
+      btn.addEventListener('click', function () { openDoc(history[Number(btn.getAttribute('data-idx'))].doc, false); });
+    });
+    list.querySelectorAll('.hist-remove').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        history.splice(Number(btn.getAttribute('data-idx')), 1);
+        saveHistory();
+        renderHistoryList();
+      });
+    });
+  }
+
+  function setBusy(v) {
+    busy = v;
+    var btn = document.getElementById('generateBtn');
+    var busyRow = document.getElementById('busyRow');
+    if (btn) { btn.disabled = v; btn.textContent = v ? 'Generating…' : 'Generate SOP'; }
+    if (busyRow) busyRow.style.display = v ? 'flex' : 'none';
+  }
+  function showError(msg) {
+    var row = document.getElementById('errorRow');
+    if (row) { row.textContent = msg; row.style.display = 'block'; }
+  }
+  function clearError() {
+    var row = document.getElementById('errorRow');
+    if (row) { row.textContent = ''; row.style.display = 'none'; }
+  }
+
+  // ---------- generation ----------
+
+  function generate() {
+    if (busy) return;
+    var desc = (els.ta.value || '').trim();
+    if (!desc) {
+      showError('Describe the process first.');
+      els.ta.focus();
+      return;
+    }
+    setBusy(true);
+    clearError();
+
+    var roles = (els.roles.value || '').trim();
+    var tools = (els.tools.value || '').trim();
+    var freq = (els.freq.value || '').trim();
+    var ctx = [];
+    if (roles) ctx.push('Roles involved: ' + roles);
+    if (tools) ctx.push('Tools used: ' + tools);
+    if (freq) ctx.push('Frequency: ' + freq);
+
+    var promptBody = 'Category: ' + category + '\n' +
+      (ctx.length ? ctx.join('\n') + '\n' : '') +
+      'Process description:\n' + desc + '\n\n' +
+      'Write a standard operating procedure. Return ONLY minified JSON, no prose, no code fences, matching:\n' +
+      '{"title":string,"category":string,"owner":string,"frequency":string,"overview":string,"roles":string[],"tools":string[],"steps":[{"number":number,"title":string,"detail":string,"owner_role":string,"checklist_items":string[]}]}\n' +
+      'Rules: 4-8 steps in the order they happen. If the process involves setting a person up — onboarding, a role change, a new starter — include one step whose checklist names every application they must have installed and signed in to, one app per checklist item. Step titles are short imperative phrases. Detail is 1-3 plain sentences explaining how to do it and what "done" means. 2-4 checklist items per step, each independently verifiable. Overview is 2-3 sentences. Institutional, matter-of-fact tone; no filler, no marketing language.';
+
+    var fullPrompt = 'You write internal operating procedures for small businesses. You output valid JSON only.\n\n' + promptBody;
+
+    var hasAi = !!(window.claude && typeof window.claude.complete === 'function');
+    if (!hasAi) {
+      finishWithFallback("AI generation isn't available in this environment — showing a sample procedure instead.", freq);
+      return;
+    }
+
+    Promise.resolve(window.claude.complete(fullPrompt)).then(function (raw) {
+      var m = String(raw).match(/\{[\s\S]*\}/);
+      if (!m) throw new Error('bad shape');
+      var parsed = JSON.parse(m[0]);
+      openDoc(normalizeDoc(parsed, category, freq), true);
+    }).catch(function () {
+      finishWithFallback("Couldn't generate that — showing a sample procedure instead.", freq);
+    });
+  }
+
+  function finishWithFallback(msg, freq) {
+    setBusy(false);
+    showError(msg);
+    var d = Object.assign({}, FALLBACK, { category: category });
+    openDoc(normalizeDoc(d, category, freq), true);
+  }
+
+  function openDoc(d, record) {
+    doc = d;
+    copied = false;
+    if (record) {
+      history = [{ id: Date.now(), doc: d }].concat(history).slice(0, 10);
+      saveHistory();
+    }
+    setBusy(false);
+    showDocScreen(d);
+    window.scrollTo(0, 0);
+  }
+
+  // ---------- doc screen ----------
+
+  function stepHtml(s, i) {
+    var num = String(i + 1).padStart(2, '0');
+    var checksHtml = '';
+    if (s.checklist_items.length) {
+      checksHtml = '<div style="display:flex; flex-direction:column; gap:8px; margin-top:4px;">' +
+        s.checklist_items.map(function (c, j) {
+          return '<label style="display:grid; grid-template-columns:16px 1fr; gap:10px; align-items:start; cursor:pointer;">' +
+            '<input type="checkbox" style="width:14px; height:14px; margin:3px 0 0; accent-color:#2563EB; cursor:pointer;">' +
+            '<span contenteditable="true" data-path="steps.' + i + '.checklist_items.' + j + '" style="font-size:13.5px; line-height:1.55; color:#262626;">' + escapeHtml(c) + '</span>' +
+          '</label>';
+        }).join('') +
+      '</div>';
+    }
+
+    return '<div class="sop-step" style="display:grid; grid-template-columns:52px 1fr; gap:20px; padding:28px 0 30px; border-top:1px solid #ECECEC;">' +
+      '<div class="mono" style="font-size:13px; font-weight:500; color:#2563EB; padding-top:3px;">' + num + '</div>' +
+      '<div style="display:flex; flex-direction:column; gap:10px; min-width:0;">' +
+        '<div style="display:flex; align-items:baseline; justify-content:space-between; gap:16px;">' +
+          '<div contenteditable="true" data-path="steps.' + i + '.title" style="font-size:17px; font-weight:600; letter-spacing:-0.01em; flex:1;">' + escapeHtml(s.title) + '</div>' +
+          '<span class="mono" style="font-size:10px; letter-spacing:0.08em; text-transform:uppercase; color:#737373; white-space:nowrap; padding-top:2px;">' + escapeHtml(s.owner_role) + '</span>' +
+        '</div>' +
+        '<p contenteditable="true" data-path="steps.' + i + '.detail" style="margin:0; font-size:14px; line-height:1.7; color:#404040;">' + escapeHtml(s.detail) + '</p>' +
+        checksHtml +
+      '</div>' +
+    '</div>';
+  }
+
+  function docScreenHTML(d) {
+    var metaFields = [
+      { label: 'Owner', path: 'owner', value: d.owner },
+      { label: 'Frequency', path: 'frequency', value: d.frequency },
+      { label: 'Last updated', path: 'updated', value: d.updated },
+      { label: 'Version', path: 'version', value: d.version }
+    ];
+    var metaHtml = metaFields.map(function (m) {
+      return '<div style="background:#FAFAFA; padding:13px 15px; display:flex; flex-direction:column; gap:5px;">' +
+        '<span class="mono" style="font-size:10px; letter-spacing:0.09em; color:#A3A3A3; text-transform:uppercase;">' + escapeHtml(m.label) + '</span>' +
+        '<span contenteditable="true" data-path="' + m.path + '" style="font-size:13px; font-weight:500; color:#0A0A0A;">' + escapeHtml(m.value) + '</span>' +
+      '</div>';
+    }).join('');
+
+    var rolesHtml = d.roles.map(function (r) { return '<span class="tag-role">' + escapeHtml(r) + '</span>'; }).join('');
+    var toolsHtml = d.tools.map(function (t) { return '<span class="tag-tool">' + escapeHtml(t) + '</span>'; }).join('');
+    var stepsHtml = d.steps.map(function (s, i) { return stepHtml(s, i); }).join('');
+
+    return '' +
+    '<div class="no-print" style="position:sticky; top:0; z-index:10; background:rgba(255,255,255,0.92); backdrop-filter:blur(8px); border-bottom:1px solid #ECECEC;">' +
+      '<div style="max-width:780px; margin:0 auto; padding:14px 32px; display:flex; align-items:center; gap:10px;">' +
+        '<button type="button" id="backBtn" class="back-btn mono">&#8592; New SOP</button>' +
+        '<div style="flex:1;"></div>' +
+        '<button type="button" id="copyBtn" class="toolbar-btn">' + (copied ? 'Copied' : 'Copy Markdown') + '</button>' +
+        '<button type="button" id="printBtn1" class="toolbar-btn">Print</button>' +
+        '<button type="button" id="printBtn2" class="toolbar-btn primary">Save as PDF</button>' +
+      '</div>' +
+    '</div>' +
+
+    '<div class="sop-doc" style="max-width:780px; margin:0 auto; padding:72px 32px 140px; animation: sop-in .35s ease both;">' +
+      '<div style="display:flex; flex-direction:column; gap:16px;">' +
+        '<div class="mono" style="font-size:11px; letter-spacing:0.12em; color:#2563EB; text-transform:uppercase;">Standard Operating Procedure &nbsp;/&nbsp; ' + escapeHtml(d.category) + '</div>' +
+        '<h1 contenteditable="true" data-path="title" style="margin:0; font-size:34px; line-height:1.15; font-weight:600; letter-spacing:-0.02em;">' + escapeHtml(d.title) + '</h1>' +
+      '</div>' +
+
+      '<div class="meta-grid" style="display:grid; grid-template-columns:repeat(4,1fr); gap:1px; background:#ECECEC; border:1px solid #ECECEC; border-radius:6px; overflow:hidden; margin:32px 0 40px;">' + metaHtml + '</div>' +
+
+      '<div style="display:flex; flex-direction:column; gap:10px; margin-bottom:36px;">' +
+        '<div class="mono" style="font-size:11px; letter-spacing:0.1em; color:#0A0A0A; text-transform:uppercase;">Purpose</div>' +
+        '<p contenteditable="true" data-path="overview" style="margin:0; font-size:15px; line-height:1.7; color:#262626;">' + escapeHtml(d.overview) + '</p>' +
+      '</div>' +
+
+      '<div class="two-col" style="display:grid; grid-template-columns:1fr 1fr; gap:32px; margin-bottom:44px;">' +
+        '<div style="display:flex; flex-direction:column; gap:12px;"><div class="mono" style="font-size:11px; letter-spacing:0.1em; color:#0A0A0A; text-transform:uppercase;">Roles</div><div style="display:flex; flex-wrap:wrap; gap:6px;">' + rolesHtml + '</div></div>' +
+        '<div style="display:flex; flex-direction:column; gap:12px;"><div class="mono" style="font-size:11px; letter-spacing:0.1em; color:#0A0A0A; text-transform:uppercase;">Tools</div><div style="display:flex; flex-wrap:wrap; gap:6px;">' + toolsHtml + '</div></div>' +
+      '</div>' +
+
+      '<div class="mono" style="font-size:11px; letter-spacing:0.1em; color:#0A0A0A; text-transform:uppercase; padding-bottom:4px;">Procedure</div>' +
+      stepsHtml +
+
+      '<div style="border-top:1px solid #0A0A0A; margin-top:8px; padding-top:16px; display:flex; justify-content:space-between; gap:16px;" class="mono">' +
+        '<span style="font-size:10px; letter-spacing:0.08em; color:#A3A3A3; text-transform:uppercase;">' + escapeHtml(d.title) + '</span>' +
+        '<span style="font-size:10px; letter-spacing:0.08em; color:#A3A3A3; text-transform:uppercase;">v' + escapeHtml(d.version) + ' &middot; ' + escapeHtml(d.updated) + '</span>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function onFieldBlur(e) {
+    var path = e.target.getAttribute('data-path');
+    if (!path || !doc) return;
+    setByPath(doc, path, e.target.innerText.trim());
+    if (history[0] && history[0].doc === doc) saveHistory();
+  }
+
+  function legacyCopy(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta);
+  }
+
+  function markdownFor(d) {
+    var L = [];
+    L.push('# ' + d.title, '');
+    L.push('**Owner:** ' + d.owner + '  ');
+    L.push('**Frequency:** ' + d.frequency + '  ');
+    L.push('**Updated:** ' + d.updated + '  ');
+    L.push('**Version:** ' + d.version, '');
+    L.push('## Purpose', '', d.overview, '');
+    if (d.roles.length) L.push('**Roles:** ' + d.roles.join(', '), '');
+    if (d.tools.length) L.push('**Tools:** ' + d.tools.join(', '), '');
+    L.push('## Procedure', '');
+    d.steps.forEach(function (s, i) {
+      L.push('### ' + (i + 1) + '. ' + s.title);
+      if (s.owner_role) L.push('*Owner: ' + s.owner_role + '*');
+      L.push('', s.detail, '');
+      s.checklist_items.forEach(function (c) { L.push('- [ ] ' + c); });
+      L.push('');
+    });
+    return L.join('\n');
+  }
+
+  function onCopyMarkdown() {
+    var md = markdownFor(doc);
+    function done() {
+      copied = true;
+      var btn = document.getElementById('copyBtn');
+      if (btn) btn.textContent = 'Copied';
+      setTimeout(function () {
+        copied = false;
+        var b = document.getElementById('copyBtn');
+        if (b) b.textContent = 'Copy Markdown';
+      }, 1600);
+    }
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(md).then(done, function () { legacyCopy(md); done(); });
+    } else {
+      legacyCopy(md);
+      done();
+    }
+  }
+
+  function attachDocHandlers() {
+    document.getElementById('backBtn').addEventListener('click', showInputScreen);
+    document.getElementById('printBtn1').addEventListener('click', function () { window.print(); });
+    document.getElementById('printBtn2').addEventListener('click', function () { window.print(); });
+    document.getElementById('copyBtn').addEventListener('click', onCopyMarkdown);
+    document.querySelectorAll('[contenteditable][data-path]').forEach(function (el) {
+      el.addEventListener('blur', onFieldBlur);
+    });
+  }
+
+  function showInputScreen() {
+    var root = document.getElementById('app');
+    root.innerHTML = inputScreenHTML();
+    attachInputHandlers();
+    setBusy(false);
+    clearError();
+  }
+
+  function showDocScreen(d) {
+    var root = document.getElementById('app');
+    root.innerHTML = docScreenHTML(d);
+    attachDocHandlers();
+  }
+
+  showInputScreen();
+})();
+</script>
+</body>
+</html>
